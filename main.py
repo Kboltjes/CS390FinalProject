@@ -18,7 +18,7 @@ def ProcessObservation(observation):
     Description:
         Takes in an observation of shape OBSERVATION_SHAPE and outputs a processed observation
     Returns:
-        The processed observation
+        object  - The processed observation
     '''
 
     # TODO: implementation
@@ -34,7 +34,7 @@ def SetupEnvironment():
         Sets up the gym environment and renders it in a human understandable
         format (i.e. proper framerate)
     Returns:
-        The gym environment object
+        object  - The gym environment object
     '''
 
     env = gym.make('Assault-v0', render_mode='human')
