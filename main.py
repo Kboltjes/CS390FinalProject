@@ -84,21 +84,24 @@ def RunEnvironment(env, agent, initialObservation, numSteps=100):
 #                                           Dueling DQN
 ######################################################################################################
 class DuelingDQNAgent():
-    def __init__(self, env, exploreRate=0.8, exploreDecay=0.995, exploreMin=0.01, learningRate=0.01, batchSize=20):
+    def __init__(self, env, exploreRate=0.8, exploreDecay=0.995, exploreMin=0.01, batchSize=20):
         """
         Description:
             Initialized a Dueling DQN Agent
         Parameters:
             env (object)                - The gym environment object
-            exploreRate (float)         - The gym environment object
+            exploreRate (float)         - How frequently on a scale [0-1] that it selects a random action to explore
+            exploreDecay (float)        - How fast the exploreRate decays
+            exploreMin (float)          - The lowest value that exploreRate can decay down to
+            batchSize (int)             - The batch size to use for learning
         """
+
         self.env = env  # the gym environment
         self.numActions = self.env.action_space.n
 
         self.exploreRate = exploreRate
         self.exploreDecay = exploreDecay
         self.exploreMin = exploreMin
-        self.lr = learningRate
         self.batchSize = batchSize
 
 
