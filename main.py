@@ -209,6 +209,9 @@ class DuelingDQNAgent:
         self.model = DuelingDQN(self.numActions)
         self.target_model = DuelingDQN(self.numActions)
 
+    def Predict(self, states):
+        return self.model.predict(states)
+
     def Backward(self):
 
         if len(self.memory) > self.batchSize:
