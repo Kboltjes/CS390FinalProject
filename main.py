@@ -8,7 +8,6 @@ from tensorflow import keras
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # uncomment for a no-gpu option
 
-
 # Select game
 GAME_ASSAULT = "Assault-v0"
 GAME = GAME_ASSAULT
@@ -67,23 +66,61 @@ def RunEnvironment(env, agent, initialObservation, numSteps=100):
         None
     """
 
-    observation = initialObservation  # the current image
+    observation = ProcessObservation(initialObservation)  # the current image
 
     for _ in range(numSteps):
-        env.render() # render each frame in a window
-        
-        observation, reward, done, info = env.step(agent.Forward(observation))
+        env.render()  # render each frame in a window
+
+        prevObservation = observation
+        action = agent.Forward(observation)
+        observation, reward, done, info = env.step(action)
+
+        if done:
+            observation = env.reset()
 
         # TODO: we can use ProcessObservation to apply preprocessing on the observations (images) before we run them through our dqn if needed
         observation = ProcessObservation(observation)
 
-        #TODO: update the agent here
+        agent.memory.remember(prevObservation, action, reward, observation, done)  # Add to memory
+        agent.Backward()
 
 
 ######################################################################################################
 #                                           Dueling DQN
 ######################################################################################################
-class DuelingDQNAgent():
+class Memory:
+    def __init__(self, capacity=2 ** 14):
+        self.samples = []
+        self.capacity = capacity
+
+    def remember(self, obs, action, reward, nextObs, done):
+        """
+        Adds elements to list. If list has reached capacity, we discard the first observations present
+        This can be improved later by using an np.ndarray instead of a list
+        """
+        self.samples.append((obs, action, reward, nextObs, done))
+        if len(self.samples) > self.capacity:
+            self.samples.pop(0)
+
+    def sample(self, size):
+        """
+        Args:
+            size: Should be equivalent to batch size that'll be used in training
+
+        Returns
+            list - `size` number of random observations from the list
+            None - if `size` is larger than the current size of the list
+        """
+        if size > len(self.samples):
+            return None
+
+        return random.sample(self.samples, size)
+
+
+######################################################################################################
+#                                           Dueling DQN
+######################################################################################################
+class DuelingDQNAgent:
     def __init__(self, env, exploreRate=0.8, exploreDecay=0.995, exploreMin=0.01, batchSize=20):
         """
         Description:
@@ -97,6 +134,7 @@ class DuelingDQNAgent():
         """
 
         self.env = env  # the gym environment
+        self.memory = Memory()
         self.numActions = self.env.action_space.n
 
         self.exploreRate = exploreRate
@@ -104,11 +142,9 @@ class DuelingDQNAgent():
         self.exploreMin = exploreMin
         self.batchSize = batchSize
 
-
         self.model_CNN, cnnOutShape = self.CreateModel_CNN()
         self.model_StateValue = self.CreateModel_StateValue(cnnOutShape)
         self.model_ActionAdvantage = self.CreateModel_ActionAdvantage(cnnOutShape, self.numActions)
-    
 
     def CreateModel_CNN(self):
         """
@@ -127,7 +163,6 @@ class DuelingDQNAgent():
         model.compile(optimizer='adam', loss=lossType)
         return model, model.layers[-1].output_shape
 
-
     def CreateModel_StateValue(self, inputShape):
         """
         Description:
@@ -145,7 +180,6 @@ class DuelingDQNAgent():
         model.add(keras.layers.Dense(1, activation="sigmoid"))
         model.compile(optimizer='adam', loss=lossType)
         return model
-
 
     def CreateModel_ActionAdvantage(self, inputShape, numActions):
         """
@@ -166,7 +200,6 @@ class DuelingDQNAgent():
         model.compile(optimizer='adam', loss=lossType)
         return model
 
-    
     def Forward(self, observation):
         """
         Description:
@@ -182,16 +215,19 @@ class DuelingDQNAgent():
             return random.randrange(self.numActions)  # randomly select one of the actions
 
         # The variables below are not descriptive, but instead follow formula 8 (pg 4) from this paper  https://arxiv.org/pdf/1511.06581.pdf
-        s = self.model_CNN.predict(observation.reshape((1, OBSERVATION_WIDTH, OBSERVATION_HEIGHT, OBSERVATION_CHANNELS)))  # reshape observation to be compatible with keras conv layer
-        V = self.model_StateValue.predict(s)       # get the value associated with the state
+        s = self.model_CNN.predict(observation.reshape((1, OBSERVATION_WIDTH, OBSERVATION_HEIGHT,
+                                                        OBSERVATION_CHANNELS)))  # reshape observation to be compatible with keras conv layer
+        V = self.model_StateValue.predict(s)  # get the value associated with the state
         A = self.model_ActionAdvantage.predict(s)  # get all advantages associated with a state
         Q = V + (A - np.argmax(A))  # calculate Q-Values (Q is an array)
         return np.argmax(Q)  # return the action that has the highest Q-Value
 
-
     def Backward(self):
-        # TODO: Implementation
-        pass
+        # Model training
+
+
+        # Update exploreRate
+        self.exploreRate = max(self.exploreMin, self.exploreRate * self.exploreDecay)
 
 
 ######################################################################################################
