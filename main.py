@@ -8,6 +8,9 @@ from tensorflow import keras
 from keras import Sequential
 from keras.layers import Input, Dense, Add, Subtract, Maximum, Conv2D, Flatten
 
+#tf.compat.v1.enable_eager_execution()
+#tf.config.run_functions_eagerly(True)
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # uncomment for a no-gpu option
 
 # Select game
@@ -222,14 +225,16 @@ class DuelingDQNAgent:
         adv_2 = Dense(64, activation="relu")(adv_1)
         adv_3 = Dense(numActions, activation="softmax")(adv_2)
 
-        # q_layer_1 = Maximum()([adv_3])
+        #numArr = adv_3.numpy()
+        #numArr -= np.argmax(numArr)
+        #q_layer_1 = Maximum()(adv_3.numpy())
         # q_layer_2 = Subtract()[adv_3, q_layer_1]
         q_layer_3 = Add()([value_3, adv_3])
         # q_layer = Maximum(q_layer_3)
 
         model = keras.Model(inputs=input, outputs=q_layer_3)
         model.summary()
-        model.compile(loss=lossType, optimzer=keras.optimizers.Adam())
+        model.compile(loss=lossType, optimizer=keras.optimizers.Adam())
         return model
 
     def Forward(self, observation):
