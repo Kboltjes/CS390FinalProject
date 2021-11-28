@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 from tensorflow import keras
+from keras import Sequential
+from keras.layers import Input, Dense, Add, Subtract, Maximum, Conv2D, Flatten
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # uncomment for a no-gpu option
 
@@ -116,6 +118,9 @@ class Memory:
 
         return random.sample(self.samples, size)
 
+    def __len__(self):
+        return len(self.samples)
+
 
 ######################################################################################################
 #                                           Dueling DQN
@@ -142,6 +147,7 @@ class DuelingDQNAgent:
         self.exploreMin = exploreMin
         self.batchSize = batchSize
 
+        self.model = self.CreateModel(self.numActions)
         self.model_CNN, cnnOutShape = self.CreateModel_CNN()
         self.model_StateValue = self.CreateModel_StateValue(cnnOutShape)
         self.model_ActionAdvantage = self.CreateModel_ActionAdvantage(cnnOutShape, self.numActions)
@@ -200,6 +206,32 @@ class DuelingDQNAgent:
         model.compile(optimizer='adam', loss=lossType)
         return model
 
+    def CreateModel(self, numActions):
+        input = Input(OBSERVATION_SHAPE)
+        lossType = keras.losses.categorical_crossentropy
+
+        backbone_1 = Conv2D(32, kernel_size=(3, 3), activation="elu")(input)
+        backbone_2 = Conv2D(64, kernel_size=(3, 3), activation="elu")(backbone_1)
+        backbone_3 = Flatten()(backbone_2)
+
+        value_1 = Dense(128, activation="relu")(backbone_3)
+        value_2 = Dense(64, activation="relu")(value_1)
+        value_3 = Dense(1, activation="sigmoid")(value_2)
+
+        adv_1 = Dense(128, activation="relu")(backbone_3)
+        adv_2 = Dense(64, activation="relu")(adv_1)
+        adv_3 = Dense(numActions, activation="softmax")(adv_2)
+
+        # q_layer_1 = Maximum()([adv_3])
+        # q_layer_2 = Subtract()[adv_3, q_layer_1]
+        q_layer_3 = Add()([value_3, adv_3])
+        # q_layer = Maximum(q_layer_3)
+
+        model = keras.Model(inputs=input, outputs=q_layer_3)
+        model.summary()
+        model.compile(loss=lossType, optimzer=keras.optimizers.Adam())
+        return model
+
     def Forward(self, observation):
         """
         Description:
@@ -214,20 +246,31 @@ class DuelingDQNAgent:
         if np.random.rand() < self.exploreRate:
             return random.randrange(self.numActions)  # randomly select one of the actions
 
-        # The variables below are not descriptive, but instead follow formula 8 (pg 4) from this paper  https://arxiv.org/pdf/1511.06581.pdf
-        s = self.model_CNN.predict(observation.reshape((1, OBSERVATION_WIDTH, OBSERVATION_HEIGHT,
-                                                        OBSERVATION_CHANNELS)))  # reshape observation to be compatible with keras conv layer
-        V = self.model_StateValue.predict(s)  # get the value associated with the state
-        A = self.model_ActionAdvantage.predict(s)  # get all advantages associated with a state
-        Q = V + (A - np.argmax(A))  # calculate Q-Values (Q is an array)
-        return np.argmax(Q)  # return the action that has the highest Q-Value
+        # # The variables below are not descriptive, but instead follow formula 8 (pg 4) from this paper  https://arxiv.org/pdf/1511.06581.pdf
+        # s = self.model_CNN.predict(observation.reshape((1, OBSERVATION_WIDTH, OBSERVATION_HEIGHT,
+        #                                                 OBSERVATION_CHANNELS)))  # reshape observation to be compatible with keras conv layer
+        # V = self.model_StateValue.predict(s)  # get the value associated with the state
+        # A = self.model_ActionAdvantage.predict(s)  # get all advantages associated with a state
+        # Q = V + (A - np.argmax(A))  # calculate Q-Values (Q is an array)
+        # return np.argmax(Q)  # return the action that has the highest Q-Value
+        Q = self.model.predict(observation.reshape((1, OBSERVATION_WIDTH, OBSERVATION_HEIGHT, OBSERVATION_CHANNELS)))
+        return np.argmax(Q)
 
     def Backward(self):
-        # Model training
 
+        if len(self.memory) > self.batchSize:
+            return
+
+        # Model training
+        samples = self.memory.sample(self.batchSize)
+        loss = self._loss(samples)
 
         # Update exploreRate
         self.exploreRate = max(self.exploreMin, self.exploreRate * self.exploreDecay)
+
+    def _loss(self, samples):
+
+        return self
 
 
 ######################################################################################################
