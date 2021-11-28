@@ -125,27 +125,16 @@ class Memory:
 ######################################################################################################
 #                                           Dueling DQN
 ######################################################################################################
-class DuelingDQNAgent:
-    def __init__(self, env, exploreRate=0.8, exploreDecay=0.995, exploreMin=0.01, batchSize=20):
+class DuelingDQN:
+    def __init__(self, numActions):
         """
         Description:
-            Initialized a Dueling DQN Agent
+            Initialized a Dueling DQN Model
         Parameters:
-            env (object)                - The gym environment object
-            exploreRate (float)         - How frequently on a scale [0-1] that it selects a random action to explore
-            exploreDecay (float)        - How fast the exploreRate decays
-            exploreMin (float)          - The lowest value that exploreRate can decay down to
-            batchSize (int)             - The batch size to use for learning
+            numActions (int)         - The number of actions the environment has
         """
 
-        self.env = env  # the gym environment
-        self.memory = Memory()
-        self.numActions = self.env.action_space.n
-
-        self.exploreRate = exploreRate
-        self.exploreDecay = exploreDecay
-        self.exploreMin = exploreMin
-        self.batchSize = batchSize
+        self.numActions = numActions
 
         self.model = self.CreateModel()
 
@@ -192,6 +181,33 @@ class DuelingDQNAgent:
         Q = self.model.predict(observation.reshape((1, OBSERVATION_WIDTH, OBSERVATION_HEIGHT,
                                                     OBSERVATION_CHANNELS)))
         return np.argmax(Q)
+
+
+class DuelingDQNAgent:
+    def __init__(self, env, exploreRate=0.8, exploreDecay=0.995, exploreMin=0.01, batchSize=20):
+        """
+        Description:
+            Initialized a Dueling DQN Agent
+        Parameters:
+            env (object)                - The openai gym object
+            exploreRate (float)         - How frequently on a scale [0-1] that it selects a random action to explore
+            exploreDecay (float)        - How fast the exploreRate decays
+            exploreMin (float)          - The lowest value that exploreRate can decay down to
+            batchSize (int)             - The batch size to use for learning
+        """
+
+        self.env = env
+        self.memory = Memory()
+
+        self.exploreRate = exploreRate
+        self.exploreDecay = exploreDecay
+        self.exploreMin = exploreMin
+        self.batchSize = batchSize
+
+        self.numActions = self.env.action_space.n
+
+        self.model = DuelingDQN(self.numActions)
+        self.target_model = DuelingDQN(self.numActions)
 
     def Backward(self):
 
