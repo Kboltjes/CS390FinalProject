@@ -5,8 +5,8 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 from tensorflow import keras
-from keras import Sequential
-from keras.layers import Input, Dense, Add, Subtract, Maximum, Conv2D, Flatten
+from keras import Sequential, Model
+from keras.layers import Input, Dense, Add, Conv2D, Flatten
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # uncomment for a no-gpu option
 
@@ -147,66 +147,9 @@ class DuelingDQNAgent:
         self.exploreMin = exploreMin
         self.batchSize = batchSize
 
-        self.model = self.CreateModel(self.numActions)
-        self.model_CNN, cnnOutShape = self.CreateModel_CNN()
-        self.model_StateValue = self.CreateModel_StateValue(cnnOutShape)
-        self.model_ActionAdvantage = self.CreateModel_ActionAdvantage(cnnOutShape, self.numActions)
+        self.model = self.CreateModel()
 
-    def CreateModel_CNN(self):
-        """
-        Description:
-            The first layer that an observation is passed through for the dueling DQN. It takes in an observation and outputs a state
-        Returns:
-            object  - The neural network model
-        """
-
-        model = keras.Sequential()
-        lossType = keras.losses.categorical_crossentropy
-        print(f"IN SHAPE: {OBSERVATION_SHAPE}")
-        model.add(keras.layers.Conv2D(32, kernel_size=(3, 3), activation="elu", input_shape=OBSERVATION_SHAPE))
-        model.add(keras.layers.Conv2D(64, kernel_size=(3, 3), activation="elu"))
-        model.add(keras.layers.Flatten())
-        model.compile(optimizer='adam', loss=lossType)
-        return model, model.layers[-1].output_shape
-
-    def CreateModel_StateValue(self, inputShape):
-        """
-        Description:
-            Creates a fully connected neural network that outputs a scalar value for a given a state
-        Parameters:
-            inputShape (object)    - The output shape from the convolutional neural network that is used as an input for this fully connected layer
-        Returns:
-            object  - The neural network model
-        """
-
-        model = keras.Sequential()
-        lossType = keras.losses.categorical_crossentropy
-        model.add(keras.layers.Dense(128, activation="relu", input_shape=inputShape))
-        model.add(keras.layers.Dense(64, activation="relu"))
-        model.add(keras.layers.Dense(1, activation="sigmoid"))
-        model.compile(optimizer='adam', loss=lossType)
-        return model
-
-    def CreateModel_ActionAdvantage(self, inputShape, numActions):
-        """
-        Description:
-            Creates a fully connected neural network that outputs a probability for each action given a state
-        Parameters:
-            inputShape (object)    - The output shape from the convolutional neural network that is used as an input for this fully connected layer
-            numActions (int)       - The number of actions in the action space. It controls the number of outputs from this layer.
-        Returns:
-            object  - The neural network model
-        """
-
-        model = keras.Sequential()
-        lossType = keras.losses.categorical_crossentropy
-        model.add(keras.layers.Dense(128, activation="relu", input_shape=inputShape))
-        model.add(keras.layers.Dense(64, activation="relu"))
-        model.add(keras.layers.Dense(numActions, activation="softmax"))
-        model.compile(optimizer='adam', loss=lossType)
-        return model
-
-    def CreateModel(self, numActions):
+    def CreateModel(self):
         input = Input(OBSERVATION_SHAPE)
         lossType = keras.losses.categorical_crossentropy
 
@@ -220,16 +163,16 @@ class DuelingDQNAgent:
 
         adv_1 = Dense(128, activation="relu")(backbone_3)
         adv_2 = Dense(64, activation="relu")(adv_1)
-        adv_3 = Dense(numActions, activation="softmax")(adv_2)
+        adv_3 = Dense(self.numActions, activation="softmax")(adv_2)
 
         # q_layer_1 = Maximum()([adv_3])
         # q_layer_2 = Subtract()[adv_3, q_layer_1]
         q_layer_3 = Add()([value_3, adv_3])
         # q_layer = Maximum(q_layer_3)
 
-        model = keras.Model(inputs=input, outputs=q_layer_3)
+        model = Model(inputs=input, outputs=q_layer_3)
         model.summary()
-        model.compile(loss=lossType, optimzer=keras.optimizers.Adam())
+        model.compile(optimizer='adam', loss=lossType)
         return model
 
     def Forward(self, observation):
@@ -246,14 +189,8 @@ class DuelingDQNAgent:
         if np.random.rand() < self.exploreRate:
             return random.randrange(self.numActions)  # randomly select one of the actions
 
-        # # The variables below are not descriptive, but instead follow formula 8 (pg 4) from this paper  https://arxiv.org/pdf/1511.06581.pdf
-        # s = self.model_CNN.predict(observation.reshape((1, OBSERVATION_WIDTH, OBSERVATION_HEIGHT,
-        #                                                 OBSERVATION_CHANNELS)))  # reshape observation to be compatible with keras conv layer
-        # V = self.model_StateValue.predict(s)  # get the value associated with the state
-        # A = self.model_ActionAdvantage.predict(s)  # get all advantages associated with a state
-        # Q = V + (A - np.argmax(A))  # calculate Q-Values (Q is an array)
-        # return np.argmax(Q)  # return the action that has the highest Q-Value
-        Q = self.model.predict(observation.reshape((1, OBSERVATION_WIDTH, OBSERVATION_HEIGHT, OBSERVATION_CHANNELS)))
+        Q = self.model.predict(observation.reshape((1, OBSERVATION_WIDTH, OBSERVATION_HEIGHT,
+                                                    OBSERVATION_CHANNELS)))
         return np.argmax(Q)
 
     def Backward(self):
