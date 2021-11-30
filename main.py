@@ -33,7 +33,21 @@ def ProcessObservation(observation):
         object  - The processed observation
     """
 
-    # TODO: implementation
+    observation = observation.reshape((1, OBSERVATION_WIDTH, OBSERVATION_HEIGHT,
+                                       OBSERVATION_CHANNELS))
+    return observation
+
+
+def ProcessObservations(observation):
+    """
+    Description:
+        Takes in an observation of shape OBSERVATION_SHAPE and outputs a processed observation
+    Returns:
+        object  - The processed observation
+    """
+
+    observation = observation.reshape((-1, OBSERVATION_WIDTH, OBSERVATION_HEIGHT,
+                                       OBSERVATION_CHANNELS))
     return observation
 
 
@@ -55,38 +69,6 @@ def SetupEnvironment():
     return env, initialObservation
 
 
-def RunEnvironment(env, agent, initialObservation, numSteps=100):
-    """
-    Description:
-        Runs the gym environment
-    Parameters:
-        env (object)                     - The gym environment object
-        agent (DuelingDQNAgent)          - The agent to use on the environment
-        initialObservation (object)      - The first observation after reseting the environment
-        numSteps (int)                   - The number of steps to run
-    Returns:
-        None
-    """
-
-    observation = ProcessObservation(initialObservation)  # the current image
-
-    for _ in range(numSteps):
-        env.render()  # render each frame in a window
-
-        prevObservation = observation
-        action = agent.Forward(observation)
-        observation, reward, done, info = env.step(action)
-
-        if done:
-            observation = env.reset()
-
-        # TODO: we can use ProcessObservation to apply preprocessing on the observations (images) before we run them through our dqn if needed
-        observation = ProcessObservation(observation)
-
-        agent.memory.remember(prevObservation, action, reward, observation, done)  # Add to memory
-        agent.Backward()
-
-
 ######################################################################################################
 #                                           Dueling DQN
 ######################################################################################################
@@ -95,7 +77,7 @@ class Memory:
         self.samples = []
         self.capacity = capacity
 
-    def remember(self, obs, action, reward, nextObs, done):
+    def Remember(self, obs, action, reward, nextObs, done):
         """
         Adds elements to list. If list has reached capacity, we discard the first observations present
         This can be improved later by using an np.ndarray instead of a list
@@ -104,7 +86,7 @@ class Memory:
         if len(self.samples) > self.capacity:
             self.samples.pop(0)
 
-    def sample(self, size):
+    def Sample(self, size):
         """
         Args:
             size: Should be equivalent to batch size that'll be used in training
@@ -116,7 +98,9 @@ class Memory:
         if size > len(self.samples):
             return None
 
-        return random.sample(self.samples, size)
+        sample = random.sample(self.samples, size)
+        sampleList = zip(*sample)
+        return map(np.asarray, sampleList)
 
     def __len__(self):
         return len(self.samples)
@@ -126,7 +110,7 @@ class Memory:
 #                                           Dueling DQN
 ######################################################################################################
 class DuelingDQN:
-    def __init__(self, numActions):
+    def __init__(self, numActions, exploreRate, exploreMin, exploreDecay):
         """
         Description:
             Initialized a Dueling DQN Model
@@ -135,6 +119,9 @@ class DuelingDQN:
         """
 
         self.numActions = numActions
+        self.exploreRate = exploreRate
+        self.exploreMin = exploreMin
+        self.exploreDecay = exploreDecay
 
         self.model = self.CreateModel()
 
@@ -146,6 +133,7 @@ class DuelingDQN:
         backbone_2 = Conv2D(64, kernel_size=(3, 3), activation="elu")(backbone_1)
         backbone_3 = Flatten()(backbone_2)
 
+        # Backbone is now fed into two separate 'networks'
         value_1 = Dense(128, activation="relu")(backbone_3)
         value_2 = Dense(64, activation="relu")(value_1)
         value_3 = Dense(1, activation="sigmoid")(value_2)
@@ -154,8 +142,10 @@ class DuelingDQN:
         adv_2 = Dense(64, activation="relu")(adv_1)
         adv_3 = Dense(self.numActions, activation="softmax")(adv_2)
 
+        # Q = Max(V + (A - Max(A)))
         # q_layer_1 = Maximum()([adv_3])
         # q_layer_2 = Subtract()[adv_3, q_layer_1]
+        # FIXME: This part needs work at a future point
         q_layer_3 = Add()([value_3, adv_3])
         # q_layer = Maximum(q_layer_3)
 
@@ -164,7 +154,7 @@ class DuelingDQN:
         model.compile(optimizer='adam', loss=lossType)
         return model
 
-    def Forward(self, observation):
+    def MakeMove(self, observation):
         """
         Description:
             Calculates the next action to perform by running through all three neural networks.
@@ -174,17 +164,21 @@ class DuelingDQN:
         Returns:
             int  - The action that should be performed on the environment
         """
-
+        self.exploreRate = max(self.exploreMin, self.exploreRate * self.exploreDecay)
         if np.random.rand() < self.exploreRate:
             return random.randrange(self.numActions)  # randomly select one of the actions
-
-        Q = self.model.predict(observation.reshape((1, OBSERVATION_WIDTH, OBSERVATION_HEIGHT,
-                                                    OBSERVATION_CHANNELS)))
+        Q = self.model.predict(observation)
         return np.argmax(Q)
+
+    def Predict(self, observation):
+        return self.model.predict(observation)
+
+    def Train(self, x, y):
+        self.model.fit(x, y, epochs=1, verbose=0)
 
 
 class DuelingDQNAgent:
-    def __init__(self, env, exploreRate=0.8, exploreDecay=0.995, exploreMin=0.01, batchSize=20):
+    def __init__(self, env, exploreRate=0.8, exploreDecay=0.995, exploreMin=0.01, batchSize=20, updateTime=20):
         """
         Description:
             Initialized a Dueling DQN Agent
@@ -205,28 +199,73 @@ class DuelingDQNAgent:
         self.batchSize = batchSize
 
         self.numActions = self.env.action_space.n
+        self.updateTime = updateTime
 
-        self.model = DuelingDQN(self.numActions)
-        self.target_model = DuelingDQN(self.numActions)
+        self.model = DuelingDQN(self.numActions, exploreRate, exploreMin, exploreDecay)
+        self.targetModel = DuelingDQN(self.numActions, exploreRate, exploreMin, exploreDecay)
+        self.Update()
 
-    def Predict(self, states):
-        return self.model.predict(states)
+    def Update(self):
+        self.targetModel.model.set_weights(self.model.model.get_weights())
+
+    def MakeMove(self, observation):
+        self.targetModel.MakeMove(observation)
+
+    def PlayGame(self):
+        self.env.reset()
+
+    def Forward(self, initialObservation, numSteps=100):
+        """
+        Description:
+            Runs the gym environment
+        Parameters:
+            initialObservation (object)      - The first observation after resetting the environment
+            numSteps (int)                   - The number of steps to run
+        Returns:
+            None
+        """
+
+        observation = ProcessObservation(initialObservation)  # the current image
+        count = 0
+        for _ in range(numSteps):
+            env.render()  # render each frame in a window
+
+            prevObservation = observation
+            action = self.model.MakeMove(observation)
+            observation, reward, done, info = env.step(action)
+
+            if done:
+                observation = env.reset()
+
+            observation = ProcessObservation(observation)
+
+            self.memory.Remember(prevObservation, action, reward, observation, done)  # Add to memory
+            self.Backward()
+
+            count += 1
+            if count == self.updateTime:
+                self.Update()
+                count = 0
 
     def Backward(self):
-
-        if len(self.memory) > self.batchSize:
+        """
+        Description:
+            Trains the model on previous observations
+        Returns:
+            None
+        """
+        if len(self.memory) < self.batchSize:
             return
 
-        # Model training
-        samples = self.memory.sample(self.batchSize)
-        loss = self._loss(samples)
-
-        # Update exploreRate
-        self.exploreRate = max(self.exploreMin, self.exploreRate * self.exploreDecay)
-
-    def _loss(self, samples):
-
-        return self
+        observs, actions, rewards, nextObservs, dones = self.memory.Sample(self.batchSize)
+        observs = ProcessObservations(observs)
+        nextObservs = ProcessObservations(nextObservs)
+        targets = self.targetModel.Predict(observs)
+        nextTargets = self.targetModel.MakeMove(nextObservs)
+        targets[range(self.batchSize), actions] = rewards + (1 - dones) * nextTargets * 0.95
+        # FIXME: Look at this formula once again
+        self.model.Train(observs, targets)
+        print("I actually trained mom!")
 
 
 ######################################################################################################
@@ -237,8 +276,7 @@ if __name__ == '__main__':
 
     print(f"\nAction space size: {env.action_space.n}\n")
 
-    duelingDQN = DuelingDQNAgent(env)
-
-    RunEnvironment(env, duelingDQN, initialObservation)
+    agent = DuelingDQNAgent(env)
+    agent.Forward(initialObservation)
 
     env.close()
