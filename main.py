@@ -5,21 +5,27 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 from tensorflow import keras
+from datetime import datetime
 from keras import Sequential, Model
 from keras.layers import Input, Dense, Add, Conv2D, Flatten
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # uncomment for a no-gpu option
+#os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # uncomment for a no-gpu option
+
+MODEL_FILENAME = "TrainedModel"
+DO_RUN_TEST = False
 
 # Select game
 GAME_ASSAULT = "Assault-v0"
+GAME_SPACE_INVADERS = "SpaceInvaders-v0"
 GAME = GAME_ASSAULT
 
-if GAME == GAME_ASSAULT:
+if GAME == GAME_ASSAULT or GAME == GAME_SPACE_INVADERS:
     # An observation is the image that is fed into the dqn.
     OBSERVATION_WIDTH = 210
     OBSERVATION_HEIGHT = 160
     OBSERVATION_CHANNELS = 3
     OBSERVATION_SHAPE = (OBSERVATION_WIDTH, OBSERVATION_HEIGHT, OBSERVATION_CHANNELS)
+
 
 
 ######################################################################################################
@@ -64,7 +70,8 @@ def SetupEnvironment():
         object  - The first observation after reseting the environment
     """
 
-    env = gym.make(GAME, render_mode='human')
+    env = gym.make(GAME)#, render_mode='human')
+
     initialObservation = env.reset()
     return env, initialObservation
 
@@ -110,7 +117,7 @@ class Memory:
 #                                           Dueling DQN
 ######################################################################################################
 class DuelingDQN:
-    def __init__(self, numActions, exploreRate, exploreMin, exploreDecay):
+    def __init__(self, numActions, exploreRate, exploreMin, exploreDecay, doTest=False):
         """
         Description:
             Initialized a Dueling DQN Model
@@ -123,31 +130,29 @@ class DuelingDQN:
         self.exploreMin = exploreMin
         self.exploreDecay = exploreDecay
 
-        self.model = self.CreateModel()
+        if doTest:
+            self.model = None # this will be loaded in the Load() function
+        else:
+            self.model = self.CreateModel()
 
     def CreateModel(self):
         input = Input(OBSERVATION_SHAPE)
         lossType = keras.losses.categorical_crossentropy
 
-        backbone_1 = Conv2D(32, kernel_size=(3, 3), activation="elu")(input)
-        backbone_2 = Conv2D(64, kernel_size=(3, 3), activation="elu")(backbone_1)
+        backbone_1 = Conv2D(16, kernel_size=(3, 3), activation="elu")(input)
+        backbone_2 = Conv2D(16, kernel_size=(3, 3), activation="elu")(backbone_1)
         backbone_3 = Flatten()(backbone_2)
 
         # Backbone is now fed into two separate 'networks'
-        value_1 = Dense(128, activation="relu")(backbone_3)
-        value_2 = Dense(64, activation="relu")(value_1)
+        value_1 = Dense(64, activation="relu")(backbone_3)
+        value_2 = Dense(32, activation="relu")(value_1)
         value_3 = Dense(1, activation="sigmoid")(value_2)
 
-        adv_1 = Dense(128, activation="relu")(backbone_3)
-        adv_2 = Dense(64, activation="relu")(adv_1)
+        adv_1 = Dense(64, activation="relu")(backbone_3)
+        adv_2 = Dense(32, activation="relu")(adv_1)
         adv_3 = Dense(self.numActions, activation="softmax")(adv_2)
 
-        # Q = Max(V + (A - Max(A)))
-        # q_layer_1 = Maximum()([adv_3])
-        # q_layer_2 = Subtract()[adv_3, q_layer_1]
-        # FIXME: This part needs work at a future point
-        q_layer_3 = Add()([value_3, adv_3])
-        # q_layer = Maximum(q_layer_3)
+        q_layer_3 = tf.add(value_3, tf.subtract(adv_3, tf.reduce_mean(adv_3)))
 
         model = Model(inputs=input, outputs=q_layer_3)
         model.summary()
@@ -168,6 +173,7 @@ class DuelingDQN:
         if np.random.rand() < self.exploreRate:
             return random.randrange(self.numActions)  # randomly select one of the actions
         Q = self.model.predict(observation)
+        #print(Q)
         return np.argmax(Q)
 
     def Predict(self, observation):
@@ -176,9 +182,15 @@ class DuelingDQN:
     def Train(self, x, y):
         self.model.fit(x, y, epochs=1, verbose=0)
 
+    def Save(self):
+        self.model.save(MODEL_FILENAME)
+
+    def LoadModel(self):
+        self.model = keras.models.load_model(MODEL_FILENAME)
+
 
 class DuelingDQNAgent:
-    def __init__(self, env, exploreRate=0.8, exploreDecay=0.995, exploreMin=0.01, batchSize=20, updateTime=20):
+    def __init__(self, env, exploreRate=1.0, exploreDecay=0.995, exploreMin=0.01, batchSize=20, updateTime=20, doTest=False):
         """
         Description:
             Initialized a Dueling DQN Agent
@@ -188,6 +200,7 @@ class DuelingDQNAgent:
             exploreDecay (float)        - How fast the exploreRate decays
             exploreMin (float)          - The lowest value that exploreRate can decay down to
             batchSize (int)             - The batch size to use for learning
+            doTest (bool)               - If the agent should load a saved model and only test it without training
         """
 
         self.env = env
@@ -201,9 +214,13 @@ class DuelingDQNAgent:
         self.numActions = self.env.action_space.n
         self.updateTime = updateTime
 
-        self.model = DuelingDQN(self.numActions, exploreRate, exploreMin, exploreDecay)
-        self.targetModel = DuelingDQN(self.numActions, exploreRate, exploreMin, exploreDecay)
-        self.Update()
+        if doTest: # load a saved model
+            self.model = DuelingDQN(self.numActions, 0, 0, 0, doTest=True)
+            self.model.LoadModel()
+        else: # create a new model
+            self.model = DuelingDQN(self.numActions, exploreRate, exploreMin, exploreDecay)
+            self.targetModel = DuelingDQN(self.numActions, exploreRate, exploreMin, exploreDecay)
+            self.Update()
 
     def Update(self):
         self.targetModel.model.set_weights(self.model.model.get_weights())
@@ -214,7 +231,21 @@ class DuelingDQNAgent:
     def PlayGame(self):
         self.env.reset()
 
-    def Forward(self, initialObservation, numSteps=100):
+    def Test(self, initialObservation):
+        observation = ProcessObservation(initialObservation)  # the current image
+        done = False
+        while not done:
+            env.render()  # render each frame in a window
+            action = self.model.MakeMove(observation)
+            print(action)
+            observation, _, done, _ = env.step(action)
+
+            observation = ProcessObservation(observation)
+
+        print("Finished Testing!")
+
+
+    def Forward(self, initialObservation, numSteps=30000):
         """
         Description:
             Runs the gym environment
@@ -232,7 +263,8 @@ class DuelingDQNAgent:
 
             prevObservation = observation
             action = self.model.MakeMove(observation)
-            observation, reward, done, info = env.step(action)
+            observation, reward, done, _ = env.step(action)
+            #print(f"Reward: {reward}, Action: {action}")
 
             if done:
                 observation = env.reset()
@@ -240,10 +272,10 @@ class DuelingDQNAgent:
             observation = ProcessObservation(observation)
 
             self.memory.Remember(prevObservation, action, reward, observation, done)  # Add to memory
-            self.Backward()
 
             count += 1
             if count == self.updateTime:
+                self.Backward()
                 self.Update()
                 count = 0
 
@@ -265,18 +297,30 @@ class DuelingDQNAgent:
         targets[range(self.batchSize), actions] = rewards + (1 - dones) * nextTargets * 0.95
         # FIXME: Look at this formula once again
         self.model.Train(observs, targets)
-        print("I actually trained mom!")
+
+    def SaveModel(self):
+        self.model.Save()
 
 
 ######################################################################################################
 #                                           Main
 ######################################################################################################
 if __name__ == '__main__':
+    startTime = datetime.now()
     env, initialObservation = SetupEnvironment()
 
-    print(f"\nAction space size: {env.action_space.n}\n")
+    print(f"\nObservation Shape: {initialObservation.shape}")
+    print(f"Action space size: {env.action_space.n}")
+    print(f"Actions: {env.unwrapped.get_action_meanings()}\n")
 
-    agent = DuelingDQNAgent(env)
-    agent.Forward(initialObservation)
+    if DO_RUN_TEST:
+        agent = DuelingDQNAgent(env, doTest=True)
+        agent.Test(initialObservation)
+    else: # train the model then save it
+        agent = DuelingDQNAgent(env, doTest=False)
+        agent.Forward(initialObservation)
+        agent.SaveModel()
 
     env.close()
+
+    print(f"Duration: {datetime.now() - startTime}")
