@@ -1,0 +1,31 @@
+2021-12-01 22:13:31,894 INFO    MainThread:30780 [wandb_setup.py:_flush():71] setting env: {}
+2021-12-01 22:13:31,894 INFO    MainThread:30780 [wandb_setup.py:_flush():71] setting login settings: {}
+2021-12-01 22:13:31,894 INFO    MainThread:30780 [wandb_setup.py:_flush():71] setting login settings: {'mode': 'offline'}
+2021-12-01 22:13:31,895 INFO    MainThread:30780 [wandb_init.py:_log_setup():371] Logging user logs to C:\Users\Kade\OneDrive\Purdue Files\Fall 2021\CS 390\Labs\CS390FinalProject\wandb\offline-run-20211201_221331-gyzx63q4\logs\debug.log
+2021-12-01 22:13:31,895 INFO    MainThread:30780 [wandb_init.py:_log_setup():372] Logging internal logs to C:\Users\Kade\OneDrive\Purdue Files\Fall 2021\CS 390\Labs\CS390FinalProject\wandb\offline-run-20211201_221331-gyzx63q4\logs\debug-internal.log
+2021-12-01 22:13:31,898 INFO    MainThread:30780 [wandb_init.py:init():404] calling init triggers
+2021-12-01 22:13:31,898 INFO    MainThread:30780 [wandb_init.py:init():411] wandb.init called with sweep_config: {}
+config: {}
+2021-12-01 22:13:31,898 INFO    MainThread:30780 [wandb_init.py:init():449] starting backend
+2021-12-01 22:13:31,898 INFO    MainThread:30780 [backend.py:_multiprocessing_setup():97] multiprocessing start_methods=spawn, using: spawn
+2021-12-01 22:13:31,905 INFO    MainThread:30780 [backend.py:ensure_launched():199] starting backend process...
+2021-12-01 22:13:31,965 INFO    MainThread:30780 [backend.py:ensure_launched():205] started backend process with pid: 32480
+2021-12-01 22:13:31,965 INFO    MainThread:30780 [wandb_init.py:init():458] backend started and connected
+2021-12-01 22:13:31,966 INFO    MainThread:30780 [wandb_init.py:init():519] updated telemetry
+2021-12-01 22:13:32,124 INFO    MainThread:30780 [wandb_init.py:init():592] starting run threads in backend
+2021-12-01 22:13:34,951 INFO    MainThread:30780 [wandb_run.py:_console_start():1816] atexit reg
+2021-12-01 22:13:34,951 INFO    MainThread:30780 [wandb_run.py:_redirect():1690] redirect: SettingsConsole.WRAP
+2021-12-01 22:13:34,952 INFO    MainThread:30780 [wandb_run.py:_redirect():1727] Wrapping output streams.
+2021-12-01 22:13:34,952 INFO    MainThread:30780 [wandb_run.py:_redirect():1751] Redirects installed.
+2021-12-01 22:13:34,952 INFO    MainThread:30780 [wandb_init.py:init():619] run started, returning control to user process
+2021-12-01 22:14:06,943 INFO    MainThread:30780 [wandb_run.py:_atexit_cleanup():1786] got exitcode: 255
+2021-12-01 22:14:06,944 INFO    MainThread:30780 [wandb_run.py:_restore():1758] restore
+2021-12-01 22:14:07,106 INFO    MainThread:30780 [wandb_run.py:_wait_for_finish():1916] got exit ret: 
+2021-12-01 22:14:07,217 INFO    MainThread:30780 [wandb_run.py:_wait_for_finish():1916] got exit ret: done: true
+exit_result {
+}
+local_info {
+}
+
+2021-12-01 22:14:08,486 INFO    MainThread:30780 [wandb_run.py:_append_history():2134] rendering history
+2021-12-01 22:14:08,486 INFO    MainThread:30780 [wandb_run.py:_append_summary():2089] rendering summary

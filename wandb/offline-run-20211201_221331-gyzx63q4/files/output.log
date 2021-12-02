@@ -1,0 +1,72 @@
+EP0 EpisodeReward=12.0
+EP1 EpisodeReward=15.0
+EP2 EpisodeReward=11.0
+EP3 EpisodeReward=11.0
+EP4 EpisodeReward=20.0
+EP5 EpisodeReward=20.0
+EP6 EpisodeReward=16.0
+EP7 EpisodeReward=10.0
+EP8 EpisodeReward=10.0
+EP9 EpisodeReward=12.0
+EP10 EpisodeReward=20.0
+EP11 EpisodeReward=61.0
+EP12 EpisodeReward=20.0
+EP13 EpisodeReward=11.0
+EP14 EpisodeReward=25.0
+EP15 EpisodeReward=30.0
+EP16 EpisodeReward=163.0
+EP17 EpisodeReward=28.0
+Traceback (most recent call last):
+  File "testing.py", line 130, in <module>
+    if __name__ == "__main__":
+  File "testing.py", line 127, in main
+    agent = Agent(env)
+  File "testing.py", line 111, in train
+    env.render()
+  File "testing.py", line 73, in get_action
+    q_value = self.predict(state)[0]
+  File "testing.py", line 67, in predict
+    return self.model.predict(state)
+  File "C:\Python37\lib\site-packages\keras\utils\traceback_utils.py", line 64, in error_handler
+    return fn(*args, **kwargs)
+  File "C:\Python37\lib\site-packages\keras\engine\training.py", line 1768, in predict
+    steps_per_execution=self._steps_per_execution)
+  File "C:\Python37\lib\site-packages\keras\engine\data_adapter.py", line 1403, in get_data_handler
+    return DataHandler(*args, **kwargs)
+  File "C:\Python37\lib\site-packages\keras\engine\data_adapter.py", line 1165, in __init__
+    model=model)
+  File "C:\Python37\lib\site-packages\keras\engine\data_adapter.py", line 325, in __init__
+    indices_dataset = indices_dataset.flat_map(slice_batch_indices)
+  File "C:\Python37\lib\site-packages\tensorflow\python\data\ops\dataset_ops.py", line 2048, in flat_map
+    return FlatMapDataset(self, map_func, name=name)
+  File "C:\Python37\lib\site-packages\tensorflow\python\data\ops\dataset_ops.py", line 5550, in __init__
+    map_func, self._transformation_name(), dataset=input_dataset)
+  File "C:\Python37\lib\site-packages\tensorflow\python\data\ops\dataset_ops.py", line 4533, in __init__
+    self._function = fn_factory()
+  File "C:\Python37\lib\site-packages\tensorflow\python\eager\function.py", line 3245, in get_concrete_function
+    *args, **kwargs)
+  File "C:\Python37\lib\site-packages\tensorflow\python\eager\function.py", line 3210, in _get_concrete_function_garbage_collected
+    graph_function, _ = self._maybe_define_function(args, kwargs)
+  File "C:\Python37\lib\site-packages\tensorflow\python\eager\function.py", line 3557, in _maybe_define_function
+    graph_function = self._create_graph_function(args, kwargs)
+  File "C:\Python37\lib\site-packages\tensorflow\python\eager\function.py", line 3402, in _create_graph_function
+    capture_by_value=self._capture_by_value),
+  File "C:\Python37\lib\site-packages\tensorflow\python\framework\func_graph.py", line 1059, in func_graph_from_py_func
+    args, arg_names, flat_shapes=arg_shapes)
+  File "C:\Python37\lib\site-packages\tensorflow\python\framework\func_graph.py", line 1296, in _get_defun_inputs_from_args
+    args, names, structure=args, flat_shapes=flat_shapes)
+  File "C:\Python37\lib\site-packages\tensorflow\python\framework\func_graph.py", line 1370, in _get_defun_inputs
+    name=requested_name)
+  File "C:\Python37\lib\site-packages\tensorflow\python\eager\graph_only_ops.py", line 40, in graph_placeholder
+    attrs=attrs, name=name)
+  File "C:\Python37\lib\site-packages\tensorflow\python\framework\func_graph.py", line 691, in _create_op_internal
+    compute_device)
+  File "C:\Python37\lib\site-packages\tensorflow\python\framework\ops.py", line 3705, in _create_op_internal
+    op_def=op_def)
+  File "C:\Python37\lib\site-packages\tensorflow\python\framework\ops.py", line 2098, in __init__
+    control_input_ops, op_def)
+  File "C:\Python37\lib\site-packages\tensorflow\python\util\traceback_utils.py", line 150, in error_handler
+    return fn(*args, **kwargs)
+  File "C:\Python37\lib\site-packages\tensorflow\python\framework\ops.py", line 1929, in _create_c_op
+    serialized = attr_value.SerializeToString()
+KeyboardInterrupt

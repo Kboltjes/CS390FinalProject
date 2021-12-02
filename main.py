@@ -17,9 +17,10 @@ DO_RUN_TEST = False
 # Select game
 GAME_ASSAULT = "Assault-v0"
 GAME_SPACE_INVADERS = "SpaceInvaders-v0"
+GAME_BREAKOUT = "Breakout-v0"
 GAME = GAME_ASSAULT
 
-if GAME == GAME_ASSAULT or GAME == GAME_SPACE_INVADERS:
+if GAME == GAME_ASSAULT or GAME == GAME_SPACE_INVADERS or GAME == GAME_BREAKOUT:
     # An observation is the image that is fed into the dqn.
     OBSERVATION_WIDTH = 210
     OBSERVATION_HEIGHT = 160
@@ -55,6 +56,32 @@ def ProcessObservations(observation):
     observation = observation.reshape((-1, OBSERVATION_WIDTH, OBSERVATION_HEIGHT,
                                        OBSERVATION_CHANNELS))
     return observation
+
+def RewardScaler(observation, reward, done, info, lastLives):
+    """
+    Description:
+        Changes the reward based on the game.
+        For example, if it loses a life, make the reward negative and update lastLives
+    Returns:
+        int   - The reward
+        int   - The lastLives variable updated from the info parameter
+    """
+
+    if GAME == GAME_BREAKOUT:
+        if info['lives'] < lastLives: # it lost a life
+            reward -= 1
+        lastLives = info['lives']
+    elif GAME == GAME_ASSAULT:
+        if info['lives'] < lastLives: # it lost a life
+            reward -= 1
+        lastLives = info['lives']
+
+    if reward < 0:
+        reward = 0
+    if reward > 1:
+        reward = 1
+
+    return reward, lastLives
 
 
 ######################################################################################################
@@ -139,8 +166,8 @@ class DuelingDQN:
         input = Input(OBSERVATION_SHAPE)
         lossType = keras.losses.categorical_crossentropy
 
-        backbone_1 = Conv2D(16, kernel_size=(3, 3), activation="elu")(input)
-        backbone_2 = Conv2D(16, kernel_size=(3, 3), activation="elu")(backbone_1)
+        backbone_1 = Conv2D(32, kernel_size=(3, 3), activation="elu")(input)
+        backbone_2 = Conv2D(32, kernel_size=(3, 3), activation="elu")(backbone_1)
         backbone_3 = Flatten()(backbone_2)
 
         # Backbone is now fed into two separate 'networks'
@@ -152,7 +179,7 @@ class DuelingDQN:
         adv_2 = Dense(32, activation="relu")(adv_1)
         adv_3 = Dense(self.numActions, activation="softmax")(adv_2)
 
-        q_layer_3 = tf.add(value_3, tf.subtract(adv_3, tf.reduce_mean(adv_3)))
+        q_layer_3 = tf.add(value_3, tf.subtract(adv_3, tf.reduce_mean(adv_3, axis=1, keepdims=True)))
 
         model = Model(inputs=input, outputs=q_layer_3)
         model.summary()
@@ -180,7 +207,7 @@ class DuelingDQN:
         return self.model.predict(observation)
 
     def Train(self, x, y):
-        self.model.fit(x, y, epochs=1, verbose=0)
+        self.model.fit(x, y, epochs=1, verbose=1)
 
     def Save(self):
         self.model.save(MODEL_FILENAME)
@@ -190,7 +217,7 @@ class DuelingDQN:
 
 
 class DuelingDQNAgent:
-    def __init__(self, env, exploreRate=1.0, exploreDecay=0.995, exploreMin=0.01, batchSize=20, updateTime=20, doTest=False):
+    def __init__(self, env, exploreRate=1.0, exploreDecay=0.995, exploreMin=0.01, batchSize=15, updateTime=200, doTest=False):
         """
         Description:
             Initialized a Dueling DQN Agent
@@ -245,7 +272,7 @@ class DuelingDQNAgent:
         print("Finished Testing!")
 
 
-    def Forward(self, initialObservation, numSteps=30000):
+    def Forward(self, initialObservation, numSteps=100000):
         """
         Description:
             Runs the gym environment
@@ -258,13 +285,17 @@ class DuelingDQNAgent:
 
         observation = ProcessObservation(initialObservation)  # the current image
         count = 0
+        lastLives = 0
         for _ in range(numSteps):
             env.render()  # render each frame in a window
 
             prevObservation = observation
             action = self.model.MakeMove(observation)
-            observation, reward, done, _ = env.step(action)
-            #print(f"Reward: {reward}, Action: {action}")
+            observation, reward, done, info = env.step(action)
+
+            reward, lastLives = RewardScaler(observation, reward, done, info, lastLives)
+
+            #print(f"Reward: {reward}, Action: {action}, Info: {info}")
 
             if done:
                 observation = env.reset()
@@ -273,9 +304,10 @@ class DuelingDQNAgent:
 
             self.memory.Remember(prevObservation, action, reward, observation, done)  # Add to memory
 
+            self.Backward()
+
             count += 1
             if count == self.updateTime:
-                self.Backward()
                 self.Update()
                 count = 0
 
@@ -289,12 +321,42 @@ class DuelingDQNAgent:
         if len(self.memory) < self.batchSize:
             return
 
+        '''
+        observs, actions, rewards, nextObservs, dones = self.memory.Sample(self.batchSize)
+        dones = dones.reshape(dones.shape[0], 1)
+        rewards = rewards.reshape(rewards.shape[0], 1)
+        observs = ProcessObservations(observs)
+        nextObservs = ProcessObservations(nextObservs)
+        targets = self.targetModel.Predict(observs)
+        nextTargets = self.targetModel.Predict(nextObservs)
+        targetTensor = rewards + (1 - dones) * nextTargets * 0.95
+        print(f"Targets Shape: {targets.shape}")
+        print(f"Next Targets Shape: {nextTargets.shape}")
+        print(f"Targets Tensor Shape: {targetTensor.shape}")
+        print(f"Actions Shape: {actions.shape}")
+        print(targetTensor)
+        print(dones)
+        print(rewards)
+        print(targets)
+        print(actions)
+        print(nextTargets)
+        print()
+        print()
+        '''
+
         observs, actions, rewards, nextObservs, dones = self.memory.Sample(self.batchSize)
         observs = ProcessObservations(observs)
         nextObservs = ProcessObservations(nextObservs)
         targets = self.targetModel.Predict(observs)
         nextTargets = self.targetModel.MakeMove(nextObservs)
         targets[range(self.batchSize), actions] = rewards + (1 - dones) * nextTargets * 0.95
+        print(f"Dones Shape: {dones.shape}")
+        print(f"Actions Shape: {actions.shape}")
+        print(f"Next Targets Value: {nextTargets}")
+        print(f"Targets Shape: {targets.shape}")
+        print()
+        print()
+
         # FIXME: Look at this formula once again
         self.model.Train(observs, targets)
 

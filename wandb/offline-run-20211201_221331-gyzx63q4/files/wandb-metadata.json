@@ -1,0 +1,24 @@
+{
+    "os": "Windows-10-10.0.19041-SP0",
+    "python": "3.7.0",
+    "heartbeatAt": "2021-12-02T03:13:34.795133",
+    "startedAt": "2021-12-02T03:13:31.891044",
+    "docker": null,
+    "gpu": "NVIDIA GeForce GTX 1660 SUPER",
+    "gpu_count": 1,
+    "cpu_count": 12,
+    "cuda": null,
+    "args": [],
+    "state": "running",
+    "program": "testing.py",
+    "codePath": "testing.py",
+    "git": {
+        "remote": "https://github.com/Kboltjes/CS390FinalProject.git",
+        "commit": "05ee2381dfaa4393e53b0a49b530bc2713530706"
+    },
+    "email": "kboltjes@purdue.edu",
+    "root": "C:/Users/Kade/OneDrive/Purdue Files/Fall 2021/CS 390/Labs/CS390FinalProject",
+    "host": "DESKTOP-5N43P9E",
+    "username": "Kade",
+    "executable": "C:\\Python37\\python.exe"
+}
