@@ -1,5 +1,6 @@
 import os
 import gym
+import cv2
 import random
 import numpy as np
 import pandas as pd
@@ -18,7 +19,7 @@ DO_RUN_TEST = False
 GAME_ASSAULT = "Assault-v0"
 GAME_SPACE_INVADERS = "SpaceInvaders-v0"
 GAME_BREAKOUT = "Breakout-v0"
-GAME = GAME_ASSAULT
+GAME = GAME_BREAKOUT
 
 if GAME == GAME_ASSAULT or GAME == GAME_SPACE_INVADERS or GAME == GAME_BREAKOUT:
     # An observation is the image that is fed into the dqn.
@@ -26,6 +27,11 @@ if GAME == GAME_ASSAULT or GAME == GAME_SPACE_INVADERS or GAME == GAME_BREAKOUT:
     OBSERVATION_HEIGHT = 160
     OBSERVATION_CHANNELS = 3
     OBSERVATION_SHAPE = (OBSERVATION_WIDTH, OBSERVATION_HEIGHT, OBSERVATION_CHANNELS)
+
+    RESIZED_WIDTH = 84
+    RESIZED_HEIGHT = 84
+    RESIZED_CHANNELS = 1
+    RESIZED_SHAPE = (RESIZED_WIDTH, RESIZED_HEIGHT, RESIZED_CHANNELS)
 
 
 
@@ -37,25 +43,29 @@ def ProcessObservation(observation):
     Description:
         Takes in an observation of shape OBSERVATION_SHAPE and outputs a processed observation
     Returns:
-        object  - The processed observation
+        object  - An (84, 84, 1) grayscale version of the observation
     """
+    
+    observation = observation.astype(np.uint8)  # cv2 requires np.uint8, other dtypes will not work
 
-    observation = observation.reshape((1, OBSERVATION_WIDTH, OBSERVATION_HEIGHT,
-                                       OBSERVATION_CHANNELS))
+    observation = cv2.cvtColor(observation, cv2.COLOR_RGB2GRAY)
+    observation = observation[34:34+160, :160]  # crop image
+    observation = cv2.resize(observation, (RESIZED_WIDTH, RESIZED_HEIGHT), interpolation=cv2.INTER_NEAREST)
+    observation = observation.reshape((1, *(RESIZED_WIDTH, RESIZED_HEIGHT), 1))
     return observation
+
+    #return observation
 
 
 def ProcessObservations(observation):
     """
     Description:
-        Takes in an observation of shape OBSERVATION_SHAPE and outputs a processed observation
+        Takes in a bunch of observations of shape OBSERVATION_SHAPE and outputs processed observations
     Returns:
-        object  - The processed observation
+        object  - An (X, 84, 84, 1) grayscale version of the observation
     """
 
-    observation = observation.reshape((-1, OBSERVATION_WIDTH, OBSERVATION_HEIGHT,
-                                       OBSERVATION_CHANNELS))
-    return observation
+    return observation.reshape((-1, RESIZED_WIDTH, RESIZED_HEIGHT, 1))
 
 def RewardScaler(observation, reward, done, info, lastLives):
     """
@@ -163,7 +173,7 @@ class DuelingDQN:
             self.model = self.CreateModel()
 
     def CreateModel(self):
-        input = Input(OBSERVATION_SHAPE)
+        input = Input(RESIZED_SHAPE)
         lossType = keras.losses.categorical_crossentropy
 
         backbone_1 = Conv2D(32, kernel_size=(3, 3), activation="elu")(input)
@@ -202,6 +212,15 @@ class DuelingDQN:
         Q = self.model.predict(observation)
         #print(Q)
         return np.argmax(Q)
+    
+    def MakeMoves(self, observations):
+        self.exploreRate = max(self.exploreMin, self.exploreRate * self.exploreDecay)
+        if np.random.rand() < self.exploreRate:
+            return np.random.randint(self.numActions, size=observations.shape[0]) #random.randrange(self.numActions)  # randomly select one of the actions
+        Q = self.model.predict(observations)
+        print(f"Q Shape: {Q.shape}")
+
+        return np.argmax(Q, axis=1)
 
     def Predict(self, observation):
         return self.model.predict(observation)
@@ -348,8 +367,10 @@ class DuelingDQNAgent:
         observs = ProcessObservations(observs)
         nextObservs = ProcessObservations(nextObservs)
         targets = self.targetModel.Predict(observs)
-        nextTargets = self.targetModel.MakeMove(nextObservs)
+        nextTargets = self.targetModel.MakeMoves(nextObservs) # TODO: make this output a bunch
         targets[range(self.batchSize), actions] = rewards + (1 - dones) * nextTargets * 0.95
+        print(f"Observation Shape: {observs.shape}")
+        print(f"Next Observation Shape: {nextObservs.shape}")
         print(f"Dones Shape: {dones.shape}")
         print(f"Actions Shape: {actions.shape}")
         print(f"Next Targets Value: {nextTargets}")
