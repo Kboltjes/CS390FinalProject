@@ -367,7 +367,7 @@ class DuelingDQNAgent:
         observs = ProcessObservations(observs)
         nextObservs = ProcessObservations(nextObservs)
         targets = self.targetModel.Predict(observs)
-        nextTargets = self.targetModel.MakeMoves(nextObservs) # TODO: make this output a bunch
+        nextTargets = self.targetModel.MakeMoves(nextObservs)
         targets[range(self.batchSize), actions] = rewards + (1 - dones) * nextTargets * 0.95
         print(f"Observation Shape: {observs.shape}")
         print(f"Next Observation Shape: {nextObservs.shape}")
