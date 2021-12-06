@@ -346,7 +346,7 @@ class DuelingDQN:
 
 
 class DuelingDQNAgent:
-    def __init__(self, env, exploreRate=1.0, exploreDecay=0.999999, exploreMin=0.1, batchSize=32, updateTime=4, startBatchSize=50000, doTest=False):
+    def __init__(self, env, exploreRate=1.0, exploreDecay=0.999999, exploreMin=0.1, batchSize=32, trainTime=4, updateTime=5000, startBatchSize=50000, doTest=False):
         """
         Description:
             Initialized a Dueling DQN Agent
@@ -356,7 +356,8 @@ class DuelingDQNAgent:
             exploreDecay (float)        - How fast the exploreRate decays - NOT used with the new linear decay rate
             exploreMin (float)          - The lowest value that exploreRate can decay down to
             batchSize (int)             - The batch size to use for learning
-            updateTime (int)            - The number of frames to run in between training the model
+            trainTime (int)             - The number of frames to run in between training model
+            updateTime (int)            - The number of frames to run in between updating the target network
             startBatchSize (int)        - The number of random frames to store into memory before training begins
             doTest (bool)               - If the agent should load a saved model and only test it without training
         """
@@ -460,9 +461,12 @@ class DuelingDQNAgent:
 
                 frameNum += 1
 
-                if frameNum % self.updateTime == 0 and frameNum > self.startBatchSize:
-                    loss = self.Learn() # TODO: Aryan this is where you get the Huber loss per train
-                    self.Update()
+                if frameNum > self.startBatchSize:
+                    if frameNum % self.trainTime == 0:
+                        loss = self.Learn() # TODO: Aryan this is where you get the Huber loss per train
+
+                    if frameNum % self.updateTime == 0:
+                        self.Update() # update target network weights
                 
                 if done:
                     done = False
