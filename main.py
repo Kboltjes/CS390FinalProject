@@ -12,9 +12,8 @@ from keras.layers import Input, Dense, Conv2D, Flatten, Lambda
 
 #os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # uncomment for a no-gpu option
 
-#MODEL_FILENAME = "TrainedModel.h5"
-MODEL_FILENAME = "breakout-saves/save-01539670/dqn.h5"
-DO_RUN_TEST = True
+MODEL_FILENAME = "TrainedModel.h5"
+DO_RUN_TEST = False
 
 # Select game
 GAME_ASSAULT = "Assault-v0"
