@@ -4,3 +4,4 @@
 *.ini
 TrainedModel/*
 TrainedModel
+testing.py

@@ -1,4 +1,3 @@
-import os
 import gym
 import cv2
 import random
@@ -6,14 +5,16 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 from tensorflow import keras
+from tensorflow.keras.optimizers import Adam
 from datetime import datetime
-from keras import Sequential, Model
-from keras.layers import Input, Dense, Add, Conv2D, Flatten
+from keras import Model
+from keras.layers import Input, Dense, Conv2D, Flatten, Lambda
 
 #os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # uncomment for a no-gpu option
 
-MODEL_FILENAME = "TrainedModel"
-DO_RUN_TEST = False
+#MODEL_FILENAME = "TrainedModel.h5"
+MODEL_FILENAME = "breakout-saves/save-01539670/dqn.h5"
+DO_RUN_TEST = True
 
 # Select game
 GAME_ASSAULT = "Assault-v0"
@@ -33,6 +34,73 @@ if GAME == GAME_ASSAULT or GAME == GAME_SPACE_INVADERS or GAME == GAME_BREAKOUT:
     RESIZED_CHANNELS = 1
     RESIZED_SHAPE = (RESIZED_WIDTH, RESIZED_HEIGHT, RESIZED_CHANNELS)
 
+    MAX_GAME_FRAMES = 20000 # the maximum number of frames that a single game is allowed to run for before being auto-reset
+    NUM_FRAMES_PER_PASS = 4 # the number of frames used in 
+    INPUT_SHAPE = (RESIZED_WIDTH, RESIZED_HEIGHT, NUM_FRAMES_PER_PASS)
+
+
+######################################################################################################
+#                                           Gym Environment Wrapper
+######################################################################################################
+class GymEnvWrapper:
+    def __init__(self):
+        """
+        Description:
+            Creates an environment wrapper for the gym environment
+        """
+        self.env = gym.make('BreakoutDeterministic-v4')
+
+        self.state = None  # the last 3 frames and the current frame of the environment all stacked together
+        self.currentLives = 0
+
+    def reset(self):
+        """
+        Description:
+            Resets the gym environment for a new game.
+        """
+
+        self.currentLives = 0
+        self.frame = self.env.reset()
+
+        # since we need 4 frames to feed through the network, just duplicate the first one 4 times
+        self.state = np.repeat(ProcessObservation(self.frame), NUM_FRAMES_PER_PASS, axis=2)
+    
+    def render(self):
+        self.env.render()
+
+    def step(self, action, renderMode='human'):
+        """
+        Description:
+            Passes the action to the gym environment and saves the result to self.state.
+            Will render the frame if renderMode is 'human'
+        Arguments:
+            action (int)            - The action to run
+            renderMode (object)     - 'human' will render a screen, anything else won't render anything
+        Returns:
+            object      - The processed new frame as a result of that action
+            int         - The unscaled reward from the action
+            bool        - If the game has ended or not
+            bool        - If the action caused a life to be lost
+        """
+        observation, reward, done, info = self.env.step(action)
+
+        didLoseLife = True if info['lives'] < self.currentLives else done # didLoseLife is essentially the same as done. They both mean to recall the ball in
+        self.currentLives = info['lives']
+
+        observation = ProcessObservation(observation)
+        self.state = np.append(self.state[:, :, 1:], observation, axis=2)
+
+        if renderMode == 'human':
+            self.env.render()
+
+        return observation, reward, done, didLoseLife
+    
+    def close(self):
+        """
+        Description:
+            Closes the environment
+        """
+        self.env.close()
 
 
 ######################################################################################################
@@ -42,56 +110,18 @@ def ProcessObservation(observation):
     """
     Description:
         Takes in an observation of shape OBSERVATION_SHAPE and outputs a processed observation
+    Parameters:
+        observation (object)  - A (210, 160, 3) observation from the gym environment
     Returns:
         object  - An (84, 84, 1) grayscale version of the observation
     """
     
-    observation = observation.astype(np.uint8)  # cv2 requires np.uint8, other dtypes will not work
-
-    observation = cv2.cvtColor(observation, cv2.COLOR_RGB2GRAY)
-    observation = observation[34:34+160, :160]  # crop image
+    observation = observation.astype(np.uint8)
+    observation = cv2.cvtColor(observation, cv2.COLOR_RGB2GRAY) # grayscale the image
+    observation = observation[34:34+160, :160]  # crop image to (84, 84)
     observation = cv2.resize(observation, (RESIZED_WIDTH, RESIZED_HEIGHT), interpolation=cv2.INTER_NEAREST)
-    observation = observation.reshape((1, *(RESIZED_WIDTH, RESIZED_HEIGHT), 1))
+    observation = observation.reshape((*(RESIZED_WIDTH, RESIZED_HEIGHT), 1))
     return observation
-
-    #return observation
-
-
-def ProcessObservations(observation):
-    """
-    Description:
-        Takes in a bunch of observations of shape OBSERVATION_SHAPE and outputs processed observations
-    Returns:
-        object  - An (X, 84, 84, 1) grayscale version of the observation
-    """
-
-    return observation.reshape((-1, RESIZED_WIDTH, RESIZED_HEIGHT, 1))
-
-def RewardScaler(observation, reward, done, info, lastLives):
-    """
-    Description:
-        Changes the reward based on the game.
-        For example, if it loses a life, make the reward negative and update lastLives
-    Returns:
-        int   - The reward
-        int   - The lastLives variable updated from the info parameter
-    """
-
-    if GAME == GAME_BREAKOUT:
-        if info['lives'] < lastLives: # it lost a life
-            reward -= 1
-        lastLives = info['lives']
-    elif GAME == GAME_ASSAULT:
-        if info['lives'] < lastLives: # it lost a life
-            reward -= 1
-        lastLives = info['lives']
-
-    if reward < 0:
-        reward = 0
-    if reward > 1:
-        reward = 1
-
-    return reward, lastLives
 
 
 ######################################################################################################
@@ -103,48 +133,84 @@ def SetupEnvironment():
         Sets up the gym environment and renders it in a human understandable
         format (i.e. proper framerate)
     Returns:
-        object  - The gym environment object
-        object  - The first observation after reseting the environment
+        object  - The gym environment object wrapper
     """
 
-    env = gym.make(GAME)#, render_mode='human')
-
-    initialObservation = env.reset()
-    return env, initialObservation
+    env = GymEnvWrapper()
+    env.reset()
+    return env
 
 
 ######################################################################################################
-#                                           Dueling DQN
+#                                           Memory
 ######################################################################################################
 class Memory:
     def __init__(self, capacity=2 ** 14):
         self.samples = []
         self.capacity = capacity
+        self.numItemsPerSample = 5
 
-    def Remember(self, obs, action, reward, nextObs, done):
+    def Remember(self, obs, action, reward, done):
         """
-        Adds elements to list. If list has reached capacity, we discard the first observations present
-        This can be improved later by using an np.ndarray instead of a list
+        Description:
+            Adds elements to list. If list has reached capacity, we discard the first observations present
+            This can be improved later by using an np.ndarray instead of a list
         """
-        self.samples.append((obs, action, reward, nextObs, done))
+
+        # scale the reward to be -1, 0, or 1
+        if reward > 0:
+            reward = 1
+        elif reward < 0:
+            reward = -1
+
+        self.samples.append((obs, action, reward, done))
         if len(self.samples) > self.capacity:
             self.samples.pop(0)
 
     def Sample(self, size):
         """
-        Args:
+        Description:
+            Returns a random sample from the memory.
+        Parameters:
             size: Should be equivalent to batch size that'll be used in training
-
-        Returns
+        Returns:
             list - `size` number of random observations from the list
             None - if `size` is larger than the current size of the list
         """
         if size > len(self.samples):
             return None
 
-        sample = random.sample(self.samples, size)
-        sampleList = zip(*sample)
-        return map(np.asarray, sampleList)
+        sampleList = []
+        for _ in range(size):
+            index = random.randint(NUM_FRAMES_PER_PASS, len(self.samples) - 2) 
+            l = list(self.samples[index]) # convert to a list, so we can append to the tuple
+            
+            # convert the observation from the sample into the 3 sequential observations leading up to it and itself
+            # also append nextObservation while doing the same thing
+            observations = []
+            nextObservations = []
+            for i in reversed(range(NUM_FRAMES_PER_PASS)):
+                observations.append(self.samples[index - i][0])
+                nextObservations.append(self.samples[index - i + 1][0]) # nextObservation is just 1 observation ahead of observations
+            observations = np.asarray(observations)
+            nextObservations = np.asarray(nextObservations)
+            l[0] = observations
+            l.append(nextObservations)
+            sampleList.append(tuple(l)) # convert to tuple and append
+
+        sampleArray = np.asarray(sampleList)
+
+        # return the columns of sampleArray
+        retVals = []
+        for i in range(self.numItemsPerSample):
+            retVals.append(sampleArray[:,i])
+
+        # convert the observation tuples shape of (4, 84, 84) to (84, 84, 4)
+        for i in range(size):
+            retVals[0][i] = retVals[0][i].transpose(1, 2, 0)
+            retVals[4][i] = retVals[4][i].transpose(1, 2, 0)
+
+        return np.stack(retVals[0]), retVals[1], retVals[2], retVals[3], np.stack(retVals[4])
 
     def __len__(self):
         return len(self.samples)
@@ -154,29 +220,44 @@ class Memory:
 #                                           Dueling DQN
 ######################################################################################################
 class DuelingDQN:
-    def __init__(self, numActions, exploreRate, exploreMin, exploreDecay, doTest=False):
+    def __init__(self, numActions, exploreRate, exploreMin, exploreDecay, inputShape, doTest=False):
         """
         Description:
             Initialized a Dueling DQN Model
         Parameters:
-            numActions (int)         - The number of actions the environment has
+            numActions (int)            - The number of actions the environment has
+            exploreRate (float)         - How frequently on a scale [0-1] that it selects a random action to explore
+            exploreMin (float)          - The lowest value that exploreRate can decay down to
+            exploreDecay (float)        - How fast the exploreRate decays - NOT used with the new linear decay rate
+            inputShape (object)         - The shape of input that the model will receive
+            doTest (bool)               - If the agent should load a saved model and only test it without training
         """
 
         self.numActions = numActions
         self.exploreRate = exploreRate
         self.exploreMin = exploreMin
         self.exploreDecay = exploreDecay
+        self.inputShape = inputShape
 
         if doTest:
             self.model = None # this will be loaded in the Load() function
         else:
             self.model = self.CreateModel()
 
-    def CreateModel(self):
-        input = Input(RESIZED_SHAPE)
-        lossType = keras.losses.categorical_crossentropy
 
-        backbone_1 = Conv2D(32, kernel_size=(3, 3), activation="elu")(input)
+    def CreateModel(self):
+        """
+        Description:
+            Creates a Keras Dueling DQN model
+        Returns:
+            object  - The Keras Dueling DQN model
+        """
+        input = Input(shape=INPUT_SHAPE)
+
+
+        normalizedInput = Lambda(lambda layer: layer / 255)(input)  # normalize everything to be in range [0-1]
+
+        backbone_1 = Conv2D(32, kernel_size=(3, 3), activation="elu")(normalizedInput)
         backbone_2 = Conv2D(32, kernel_size=(3, 3), activation="elu")(backbone_1)
         backbone_3 = Flatten()(backbone_2)
 
@@ -193,193 +274,204 @@ class DuelingDQN:
 
         model = Model(inputs=input, outputs=q_layer_3)
         model.summary()
-        model.compile(optimizer='adam', loss=lossType)
+        model.compile(Adam(0.00001), loss=tf.keras.losses.Huber())
         return model
 
-    def MakeMove(self, observation):
+    def MakeMove(self, observation, frameNum, doUpdateExploreRate=True):
         """
         Description:
             Calculates the next action to perform by running through all three neural networks.
-            Will randomly select an action based on exploreRate
+            Will randomly select an action based on exploreRate.
+            Decreases explore rate if doUpdateExploreRate is true.
+        Parameters:
+            observation (object)        - The observation read from the gym environment of shape OBSERVATION_SHAPE
+            frameNum (int)              - The frame number of training that the model is on (used for linear decay of explore rate)
+            doUpdateExploreRate (bool)  - Whether explore rate should be decayed or not
+        Returns:
+            int  - The action that should be performed on the environment
+        """
+
+        if doUpdateExploreRate:
+            self.UpdateExploreRate(frameNum)
+
+        if np.random.rand() < self.exploreRate:
+            return random.randrange(self.numActions)  # randomly select one of the actions
+
+        Q = self.model.predict(observation.reshape((-1, RESIZED_WIDTH, RESIZED_HEIGHT, NUM_FRAMES_PER_PASS)))[0]
+        return np.argmax(Q)
+
+    def MakeMoveTest(self, observation):
+        """
+        Description:
+            Calculates the next action to perform by running through all three neural networks.
+            Does not do any random actions because this is meant for testing.
         Parameters:
             observation (object)    - The observation read from the gym environment of shape OBSERVATION_SHAPE
         Returns:
             int  - The action that should be performed on the environment
         """
-        self.exploreRate = max(self.exploreMin, self.exploreRate * self.exploreDecay)
-        if np.random.rand() < self.exploreRate:
-            return random.randrange(self.numActions)  # randomly select one of the actions
-        Q = self.model.predict(observation)
-        #print(Q)
-        return np.argmax(Q)
-    
-    def MakeMoves(self, observations):
-        self.exploreRate = max(self.exploreMin, self.exploreRate * self.exploreDecay)
-        if np.random.rand() < self.exploreRate:
-            return np.random.randint(self.numActions, size=observations.shape[0]) #random.randrange(self.numActions)  # randomly select one of the actions
-        Q = self.model.predict(observations)
-        print(f"Q Shape: {Q.shape}")
 
-        return np.argmax(Q, axis=1)
+        Q = self.model.predict(observation.reshape((-1, RESIZED_WIDTH, RESIZED_HEIGHT, NUM_FRAMES_PER_PASS)))[0]
+        return np.argmax(Q)
+
+    def UpdateExploreRate(self, frameNum):
+        """
+        Description:
+            Updates the exploration rate linearly
+        """
+        # using a linearly decaying explore rate seems better than exponential
+        # this gets us to an exploreRate of 0.1 at 1,000,000 frames
+        self.exploreRate = -(0.0000009) * frameNum + 1  
 
     def Predict(self, observation):
+        """
+        Description:
+            Provides predictions from the model
+        """
         return self.model.predict(observation)
 
-    def Train(self, x, y):
-        self.model.fit(x, y, epochs=1, verbose=1)
-
     def Save(self):
+        """
+        Description:
+            Saves the model to a file
+        """
         self.model.save(MODEL_FILENAME)
 
     def LoadModel(self):
+        """
+        Description:
+            Loads a model from a file rather than creating a new one
+        """
         self.model = keras.models.load_model(MODEL_FILENAME)
 
 
 class DuelingDQNAgent:
-    def __init__(self, env, exploreRate=1.0, exploreDecay=0.995, exploreMin=0.01, batchSize=15, updateTime=200, doTest=False):
+    def __init__(self, env, exploreRate=1.0, exploreDecay=0.999999, exploreMin=0.1, batchSize=32, updateTime=4, startBatchSize=50000, doTest=False):
         """
         Description:
             Initialized a Dueling DQN Agent
         Parameters:
             env (object)                - The openai gym object
             exploreRate (float)         - How frequently on a scale [0-1] that it selects a random action to explore
-            exploreDecay (float)        - How fast the exploreRate decays
+            exploreDecay (float)        - How fast the exploreRate decays - NOT used with the new linear decay rate
             exploreMin (float)          - The lowest value that exploreRate can decay down to
             batchSize (int)             - The batch size to use for learning
+            updateTime (int)            - The number of frames to run in between training the model
+            startBatchSize (int)        - The number of random frames to store into memory before training begins
             doTest (bool)               - If the agent should load a saved model and only test it without training
         """
 
         self.env = env
+
+        self.numActions = self.env.env.action_space.n
         self.memory = Memory()
 
         self.exploreRate = exploreRate
         self.exploreDecay = exploreDecay
         self.exploreMin = exploreMin
         self.batchSize = batchSize
+        self.startBatchSize = startBatchSize
 
-        self.numActions = self.env.action_space.n
         self.updateTime = updateTime
 
         if doTest: # load a saved model
-            self.model = DuelingDQN(self.numActions, 0, 0, 0, doTest=True)
+            self.model = DuelingDQN(self.numActions, 0, 0, 0, self.env.env.observation_space.shape, doTest=True)
             self.model.LoadModel()
         else: # create a new model
-            self.model = DuelingDQN(self.numActions, exploreRate, exploreMin, exploreDecay)
-            self.targetModel = DuelingDQN(self.numActions, exploreRate, exploreMin, exploreDecay)
+            self.model = DuelingDQN(self.numActions, exploreRate, exploreMin, exploreDecay, self.env.env.observation_space.shape)
+            self.targetModel = DuelingDQN(self.numActions, exploreRate, exploreMin, exploreDecay, self.env.env.observation_space.shape)
             self.Update()
 
     def Update(self):
+        """
+        Description:
+            Updates the target model weights
+        """
         self.targetModel.model.set_weights(self.model.model.get_weights())
 
-    def MakeMove(self, observation):
-        self.targetModel.MakeMove(observation)
-
-    def PlayGame(self):
-        self.env.reset()
-
-    def Test(self, initialObservation):
-        observation = ProcessObservation(initialObservation)  # the current image
+    def Test(self):
+        """
+        Description:
+            Runs a test on a model in a single game
+        """
+        env.reset()
         done = False
+        didLoseLife = False
         while not done:
-            env.render()  # render each frame in a window
-            action = self.model.MakeMove(observation)
-            print(action)
-            observation, _, done, _ = env.step(action)
+            if didLoseLife:
+                # force the environment to resummon the ball after it loses a life or resets.
+                # it can't be penalized if it doesn't resummon the ball... :)
+                action = 1  
+            else:
+                action = self.model.MakeMoveTest(env.state)
 
-            observation = ProcessObservation(observation)
+            _, _, done, didLoseLife = env.step(action)
 
         print("Finished Testing!")
 
+    def Learn(self):
+        """
+        Description:
+            Performs backpropagation and updates the gradients on the main model
+        """
+        observs, actions, rewards, dones, nextObservs = self.memory.Sample(self.batchSize)
 
-    def Forward(self, initialObservation, numSteps=100000):
+        maxQ = self.model.Predict(nextObservs).argmax(axis=1)
+
+        futureQ = self.targetModel.Predict(nextObservs)
+        doubleQ = futureQ[range(self.batchSize), maxQ]
+
+        targetQ = (rewards + (0.95 * doubleQ * (1-dones))).astype('float32')
+
+        with tf.GradientTape() as tape:
+            currentQ = self.model.model(observs)  # we use model(observs) instead of model.predict(observs) because this is differentiable
+            one_hot_actions = tf.keras.utils.to_categorical(actions, self.numActions, dtype=np.float32)
+            Q = tf.reduce_sum(tf.multiply(currentQ, one_hot_actions), axis=1)
+
+            h_loss = keras.losses.Huber()(targetQ, Q)
+
+        modelGrads = tape.gradient(h_loss, self.model.model.trainable_variables)
+        self.model.model.optimizer.apply_gradients(zip(modelGrads, self.model.model.trainable_variables))
+        
+        return float(h_loss.numpy())
+
+
+
+    def Train(self, numSteps=5000000):
         """
         Description:
             Runs the gym environment
         Parameters:
-            initialObservation (object)      - The first observation after resetting the environment
-            numSteps (int)                   - The number of steps to run
+            numSteps (int)       - The number of frames to train for
         Returns:
             None
         """
+        print("Training...")
 
-        observation = ProcessObservation(initialObservation)  # the current image
-        count = 0
-        lastLives = 0
-        for _ in range(numSteps):
-            env.render()  # render each frame in a window
+        frameNum = 0
+        while frameNum < numSteps:
+            env.reset()
+            didLoseLife = True
+            for _ in range(MAX_GAME_FRAMES):
+                action = self.model.MakeMove(env.state, frameNum, doUpdateExploreRate=(frameNum > self.startBatchSize))
+                observation, reward, done, didLoseLife = env.step(action)
 
-            prevObservation = observation
-            action = self.model.MakeMove(observation)
-            observation, reward, done, info = env.step(action)
+                self.memory.Remember(observation[:, :, 0], action, reward, didLoseLife)
 
-            reward, lastLives = RewardScaler(observation, reward, done, info, lastLives)
+                frameNum += 1
 
-            #print(f"Reward: {reward}, Action: {action}, Info: {info}")
+                if frameNum % self.updateTime == 0 and frameNum > self.startBatchSize:
+                    loss = self.Learn() # TODO: Aryan this is where you get the Huber loss per train
+                    self.Update()
+                
+                if done:
+                    done = False
+                    break
+            
+                if frameNum % 500000 == 0:
+                    print(f"Frame: {frameNum}")
 
-            if done:
-                observation = env.reset()
-
-            observation = ProcessObservation(observation)
-
-            self.memory.Remember(prevObservation, action, reward, observation, done)  # Add to memory
-
-            self.Backward()
-
-            count += 1
-            if count == self.updateTime:
-                self.Update()
-                count = 0
-
-    def Backward(self):
-        """
-        Description:
-            Trains the model on previous observations
-        Returns:
-            None
-        """
-        if len(self.memory) < self.batchSize:
-            return
-
-        '''
-        observs, actions, rewards, nextObservs, dones = self.memory.Sample(self.batchSize)
-        dones = dones.reshape(dones.shape[0], 1)
-        rewards = rewards.reshape(rewards.shape[0], 1)
-        observs = ProcessObservations(observs)
-        nextObservs = ProcessObservations(nextObservs)
-        targets = self.targetModel.Predict(observs)
-        nextTargets = self.targetModel.Predict(nextObservs)
-        targetTensor = rewards + (1 - dones) * nextTargets * 0.95
-        print(f"Targets Shape: {targets.shape}")
-        print(f"Next Targets Shape: {nextTargets.shape}")
-        print(f"Targets Tensor Shape: {targetTensor.shape}")
-        print(f"Actions Shape: {actions.shape}")
-        print(targetTensor)
-        print(dones)
-        print(rewards)
-        print(targets)
-        print(actions)
-        print(nextTargets)
-        print()
-        print()
-        '''
-
-        observs, actions, rewards, nextObservs, dones = self.memory.Sample(self.batchSize)
-        observs = ProcessObservations(observs)
-        nextObservs = ProcessObservations(nextObservs)
-        targets = self.targetModel.Predict(observs)
-        nextTargets = self.targetModel.MakeMoves(nextObservs)
-        targets[range(self.batchSize), actions] = rewards + (1 - dones) * nextTargets * 0.95
-        print(f"Observation Shape: {observs.shape}")
-        print(f"Next Observation Shape: {nextObservs.shape}")
-        print(f"Dones Shape: {dones.shape}")
-        print(f"Actions Shape: {actions.shape}")
-        print(f"Next Targets Value: {nextTargets}")
-        print(f"Targets Shape: {targets.shape}")
-        print()
-        print()
-
-        # FIXME: Look at this formula once again
-        self.model.Train(observs, targets)
+        print("Done Training!")
 
     def SaveModel(self):
         self.model.Save()
@@ -390,18 +482,17 @@ class DuelingDQNAgent:
 ######################################################################################################
 if __name__ == '__main__':
     startTime = datetime.now()
-    env, initialObservation = SetupEnvironment()
+    env = SetupEnvironment()
 
-    print(f"\nObservation Shape: {initialObservation.shape}")
-    print(f"Action space size: {env.action_space.n}")
-    print(f"Actions: {env.unwrapped.get_action_meanings()}\n")
+    print(f"\nAction space size: {env.env.action_space.n}")
+    print(f"Actions: {env.env.unwrapped.get_action_meanings()}\n")
 
     if DO_RUN_TEST:
         agent = DuelingDQNAgent(env, doTest=True)
-        agent.Test(initialObservation)
+        agent.Test()
     else: # train the model then save it
         agent = DuelingDQNAgent(env, doTest=False)
-        agent.Forward(initialObservation)
+        agent.Train()
         agent.SaveModel()
 
     env.close()
