@@ -1,5 +1,8 @@
+import os
 import gym
 import cv2
+import time
+import imageio
 import random
 import numpy as np
 import pandas as pd
@@ -10,10 +13,10 @@ from datetime import datetime
 from keras import Model
 from keras.layers import Input, Dense, Conv2D, Flatten, Lambda
 
-#os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # uncomment for a no-gpu option
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # uncomment for a no-gpu option
 
 MODEL_FILENAME = "TrainedModel.h5"
-DO_RUN_TEST = False
+DO_RUN_TEST = True
 
 # Select game
 GAME_ASSAULT = "Assault-v0"
@@ -47,7 +50,10 @@ class GymEnvWrapper:
         Description:
             Creates an environment wrapper for the gym environment
         """
-        self.env = gym.make('BreakoutDeterministic-v4')
+        if DO_RUN_TEST:
+            self.env = gym.make('BreakoutDeterministic-v4', render_mode='human')
+        else:
+            self.env = gym.make('BreakoutDeterministic-v4')
 
         self.state = None  # the last 3 frames and the current frame of the environment all stacked together
         self.currentLives = 0
@@ -85,8 +91,11 @@ class GymEnvWrapper:
 
         didLoseLife = True if info['lives'] < self.currentLives else done # didLoseLife is essentially the same as done. They both mean to recall the ball in
         self.currentLives = info['lives']
-
+        #imageio.imwrite(f"frames/Frame{int(round(time.time() * 1000))}.png", observation)
+        #time.sleep(2)
         observation = ProcessObservation(observation)
+        #imageio.imwrite(f"frames/Frame{int(round(time.time() * 1000))}.png", observation)
+        #time.sleep(2)
         self.state = np.append(self.state[:, :, 1:], observation, axis=2)
 
         if renderMode == 'human':
@@ -181,7 +190,16 @@ class Memory:
 
         sampleList = []
         for _ in range(size):
-            index = random.randint(NUM_FRAMES_PER_PASS, len(self.samples) - 2) 
+            didFindGoodIdx = False
+            while didFindGoodIdx == False:
+                didFindGoodIdx = True
+                index = random.randint(NUM_FRAMES_PER_PASS, len(self.samples) - 2) 
+
+                # make sure none of the frames we sample end up in losing a life
+                for s in self.samples[index - NUM_FRAMES_PER_PASS:index]:
+                    if s[3] == True:
+                        didFindGoodIdx = False
+
             l = list(self.samples[index]) # convert to a list, so we can append to the tuple
             
             # convert the observation from the sample into the 3 sequential observations leading up to it and itself
@@ -345,7 +363,7 @@ class DuelingDQN:
 
 
 class DuelingDQNAgent:
-    def __init__(self, env, exploreRate=1.0, exploreDecay=0.999999, exploreMin=0.1, batchSize=32, trainTime=4, updateTime=5000, startBatchSize=50000, doTest=False):
+    def __init__(self, env, exploreRate=1.0, exploreDecay=0.999999, exploreMin=0.1, batchSize=32, trainTime=4, updateTime=5000, startBatchSize=30000, doTest=False):
         """
         Description:
             Initialized a Dueling DQN Agent
@@ -372,6 +390,7 @@ class DuelingDQNAgent:
         self.batchSize = batchSize
         self.startBatchSize = startBatchSize
 
+        self.trainTime = trainTime
         self.updateTime = updateTime
 
         if doTest: # load a saved model
@@ -408,6 +427,7 @@ class DuelingDQNAgent:
             _, _, done, didLoseLife = env.step(action)
 
         print("Finished Testing!")
+        time.sleep(5) # sleep for 5 seconds so you can see final score
 
     def Learn(self):
         """
@@ -437,7 +457,7 @@ class DuelingDQNAgent:
 
 
 
-    def Train(self, numSteps=5000000):
+    def Train(self, numSteps=3000000):
         """
         Description:
             Runs the gym environment
@@ -471,7 +491,7 @@ class DuelingDQNAgent:
                     done = False
                     break
             
-                if frameNum % 500000 == 0:
+                if frameNum % 100000 == 0:
                     print(f"Frame: {frameNum}")
 
         print("Done Training!")
